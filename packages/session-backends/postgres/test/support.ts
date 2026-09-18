@@ -6,7 +6,8 @@ import { applyInitialSchema, createPostgresClient, createSchemaIfMissing, type P
 export const TEST_DATABASE_URL = process.env.PI_TEST_PG_URL;
 
 /** `describe` when a test database is configured, otherwise `describe.skip`. */
-export const describePostgres = TEST_DATABASE_URL === undefined ? describe.skip : describe;
+export const describePostgres: typeof describe | typeof describe.skip =
+	TEST_DATABASE_URL === undefined ? describe.skip : describe;
 
 export interface TestSchema extends AsyncDisposable {
 	readonly schema: string;

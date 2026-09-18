@@ -11,7 +11,8 @@ export const SANDBOX_IMAGE = process.env.PI_TEST_SANDBOX_IMAGE ?? "opensandbox/c
 export const SANDBOX_TIMEOUT_SECONDS = 1800;
 
 /** `describe` when an OpenSandbox server is configured, otherwise `describe.skip`. */
-export const describeSandbox = SANDBOX_DOMAIN === undefined ? describe.skip : describe;
+export const describeSandbox: typeof describe | typeof describe.skip =
+	SANDBOX_DOMAIN === undefined ? describe.skip : describe;
 
 export function connectionConfig(): ConnectionConfig {
 	if (SANDBOX_DOMAIN === undefined) throw new Error("OPEN_SANDBOX_DOMAIN is not set");
