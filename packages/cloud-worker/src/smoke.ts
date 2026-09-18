@@ -1,7 +1,7 @@
 /**
  * Scripted client: attach to a session, send one prompt, print the transcript once the lane is idle.
  *
- *   tsx --tsconfig tsconfig.json packages/cloud-worker/src/smoke.ts [--session <id>] [--kill-after <ms>] "<prompt>"
+ *   tsx --tsconfig tsconfig.json packages/cloud-worker/src/smoke.ts [--session <id>] [--kill-after <ms>] [--socket <path>] "<prompt>"
  *
  * `--kill-after` sends SIGKILL to the session worker mid-run and reattaches, to exercise recovery.
  */
@@ -53,11 +53,21 @@ async function reconnectUntilLeaseFree(
 	}
 }
 
-function waitForIdle(client: AttachedSession, timeoutMs: number): Promise<void> {
+/** Resolve once a run other than `previousOperationId` has finished and the lane is idle again. */
+function waitForRun(
+	client: AttachedSession,
+	previousOperationId: string | undefined,
+	timeoutMs: number,
+): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => reject(new Error("Timed out waiting for the run to finish")), timeoutMs);
 		const check = () => {
-			if (client.state().lane.operation === null) {
+			const lane = client.state().lane;
+			if (
+				lane.operation === null &&
+				lane.lastResult !== undefined &&
+				lane.lastResult.operationId !== previousOperationId
+			) {
 				clearTimeout(timer);
 				unsubscribe();
 				resolve();
@@ -72,21 +82,24 @@ async function main(): Promise<void> {
 	const argv = process.argv.slice(2);
 	let sessionId: string | null = null;
 	let killAfterMs: number | undefined;
+	let socketPath: string | undefined;
 	const words: string[] = [];
 	for (let index = 0; index < argv.length; index++) {
 		const arg = argv[index]!;
 		if (arg === "--session") sessionId = argv[++index] ?? null;
 		else if (arg === "--kill-after") killAfterMs = Number.parseInt(argv[++index] ?? "", 10);
+		else if (arg === "--socket") socketPath = argv[++index];
 		else words.push(arg);
 	}
 	const prompt = words.join(" ");
 	if (!prompt) throw new Error("A prompt is required");
 
 	const config = loadCloudConfig();
-	const transport = await ensureCloudServer(await cloudSocketPath(), config);
+	const transport = await ensureCloudServer(socketPath ?? (await cloudSocketPath()), config);
 	let client = await connect(transport, sessionId, WORKSPACE_CWD);
 	try {
 		const state = client.state();
+		const previousOperationId = state.lane.lastResult?.operationId;
 		console.log(`session ${state.sessionId} (${state.sessionPath}) cwd=${state.cwd}`);
 		console.log(`model ${state.lane.configuration.model.provider}/${state.lane.configuration.model.modelId}`);
 		// `prompt` settles when the run ends, so the kill timer must start before awaiting it.
@@ -111,7 +124,7 @@ async function main(): Promise<void> {
 			console.log("reattached; waiting for recovery");
 		}
 
-		await waitForIdle(client, 300_000);
+		await waitForRun(client, previousOperationId, 300_000);
 		const final = client.state();
 		console.log("--- transcript ---");
 		for (const entry of final.lane.transcript) console.log(describeEntry(entry));

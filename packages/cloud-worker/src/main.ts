@@ -2,7 +2,7 @@
  * The `pi-cloud` command: a terminal presentation on a cloud session.
  *
  * Run from the repository root:
- *   tsx --tsconfig tsconfig.json packages/cloud-worker/src/main.ts [--continue | --session <id>]
+ *   tsx --tsconfig tsconfig.json packages/cloud-worker/src/main.ts [--continue | --session <id>] [--socket <path>]
  */
 
 import { connect } from "@earendil-works/pi-coding-agent/experimental/mini/tui/session";
@@ -14,6 +14,7 @@ import { WORKSPACE_CWD } from "./sessions.ts";
 interface CliOptions {
 	continueSession?: boolean;
 	sessionId?: string;
+	socketPath?: string;
 }
 
 function parseArgs(argv: readonly string[]): CliOptions {
@@ -25,6 +26,10 @@ function parseArgs(argv: readonly string[]): CliOptions {
 			const id = argv[++index];
 			if (!id) throw new Error("--session requires an id");
 			options.sessionId = id;
+		} else if (arg === "--socket") {
+			const path = argv[++index];
+			if (!path) throw new Error("--socket requires a path");
+			options.socketPath = path;
 		} else throw new Error(`Unknown argument: ${arg}`);
 	}
 	return options;
@@ -32,7 +37,7 @@ function parseArgs(argv: readonly string[]): CliOptions {
 
 async function main(options: CliOptions): Promise<void> {
 	const config = loadCloudConfig();
-	const transport = await ensureCloudServer(await cloudSocketPath(), config);
+	const transport = await ensureCloudServer(options.socketPath ?? (await cloudSocketPath()), config);
 	let sessionId: string | null = options.sessionId ?? null;
 	if (sessionId === null && options.continueSession) sessionId = await newestSessionId(transport);
 	const client = await connect(transport, sessionId, WORKSPACE_CWD);

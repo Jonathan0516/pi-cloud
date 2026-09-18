@@ -8,7 +8,6 @@
  */
 
 import { mkdir } from "node:fs/promises";
-import { hostname } from "node:os";
 import { join } from "node:path";
 import {
 	AgentHarness,
@@ -28,8 +27,10 @@ import { parentConnection } from "@earendil-works/pi-coding-agent/experimental/m
 import { LaneService } from "@earendil-works/pi-coding-agent/experimental/mini/worker/lane-service";
 import { ModelsService } from "@earendil-works/pi-coding-agent/experimental/mini/worker/models-service";
 import { killSandbox, LazySandboxProvider, OpenSandboxExecutionEnv } from "@earendil-works/pi-env-opensandbox";
+import { createProxyCredentials, withModelProxy } from "@earendil-works/pi-model-proxy";
 import { type PostgresOpenSession, PostgresSessionRepo } from "@earendil-works/pi-session-backend-postgres";
-import { type CloudConfig, loadCloudConfig } from "../config.ts";
+import { type CloudConfig, loadCloudConfig, loadWorkerModelAccess, loadWorkerNodeIdentity } from "../config.ts";
+import { CloudWorker } from "../protocol.ts";
 import { createSessionClient, sessionLocation, WORKSPACE_CWD } from "../sessions.ts";
 
 /** Which sandbox currently backs this session. Application state, so forks and tree scans ignore it. */
@@ -54,13 +55,32 @@ export const EXIT_FENCED = 75;
 
 async function openSession(
 	repo: PostgresSessionRepo,
-	sessionId: string | undefined,
+	sessionId: string,
+	create: boolean,
 	context: Context,
 ): Promise<PostgresOpenSession> {
-	if (sessionId === undefined) return repo.create({}, context);
+	if (create) return repo.create({ id: sessionId }, context);
 	const metadata = (await repo.list(undefined, context)).find((candidate) => candidate.id === sessionId);
 	if (!metadata) throw new Error(`Unknown session: ${sessionId}`);
 	return repo.open(metadata, context);
+}
+
+/**
+ * Model access for this worker. Through the proxy, the only credential in this process is a token
+ * bound to the session; the proxy holds the vendor keys and every model addresses the proxy route.
+ */
+async function createModels(
+	config: CloudConfig,
+): Promise<{ runtime: ModelRuntime; harnessModels: ModelRuntime; viaProxy: boolean }> {
+	const access = loadWorkerModelAccess();
+	if (access === undefined) {
+		const runtime = await ModelRuntime.create();
+		return { runtime, harnessModels: runtime, viaProxy: false };
+	}
+	const credentials = await createProxyCredentials(access.token, access.providers);
+	const runtime = await ModelRuntime.create({ credentials, modelsPath: null });
+	void config;
+	return { runtime, harnessModels: withModelProxy(runtime, access.proxyUrl), viaProxy: true };
 }
 
 function sandboxConnection(config: CloudConfig) {
@@ -120,15 +140,20 @@ export async function createSessionExecutionEnv(
 	return new OpenSandboxExecutionEnv({ provider, cwd: WORKSPACE_CWD, ownsProvider: true });
 }
 
-/** Run one cloud session worker until its stdio closes. `sessionId` undefined creates a new session. */
-export async function runCloudSessionWorker(options: { sessionId?: string; config?: CloudConfig }): Promise<void> {
-	const config = options.config ?? loadCloudConfig();
+/** Run one cloud session worker until its stdio closes. `create` makes the session under the given id. */
+export async function runCloudSessionWorker(options: {
+	sessionId: string;
+	create: boolean;
+	config?: CloudConfig;
+}): Promise<void> {
+	const config = options.config ?? loadCloudConfig(process.env, "worker");
 	const context = BACKGROUND_CONTEXT;
 	const sql = createSessionClient(config, "pi-cloud-worker");
+	const identity = loadWorkerNodeIdentity();
 	const repo = new PostgresSessionRepo({
 		sql,
 		lease: {
-			owner: { node: hostname(), addr: `${hostname()}:${process.pid}`, proc: `${process.pid}:${Date.now()}` },
+			owner: { node: identity.node, addr: identity.addr, proc: `${process.pid}:${Date.now()}` },
 			ttlSeconds: config.leaseTtlSeconds,
 			heartbeatIntervalMs: config.leaseHeartbeatMs,
 			onFenced: (_sessionId, error) => {
@@ -139,7 +164,7 @@ export async function runCloudSessionWorker(options: { sessionId?: string; confi
 			onHeartbeatError: (error) => console.error("Lease heartbeat failed:", error),
 		},
 	});
-	const session = await openSession(repo, options.sessionId, context);
+	const session = await openSession(repo, options.sessionId, options.create, context);
 	if (session.lease) {
 		console.error(
 			`Holding session ${session.metadata.id} lease epoch ${session.lease.epoch} (${session.lease.predecessor})`,
@@ -147,23 +172,35 @@ export async function runCloudSessionWorker(options: { sessionId?: string; confi
 	}
 	const executionEnv = await createSessionExecutionEnv(session, config, context);
 
-	const modelRuntime = await ModelRuntime.create();
+	const { runtime: modelRuntime, harnessModels, viaProxy } = await createModels(config);
 	const { model, thinkingLevel } = await findInitialModel({
 		scopedModels: [],
-		isContinuing: options.sessionId !== undefined,
+		isContinuing: !options.create,
+		...(config.defaultModel === undefined
+			? {}
+			: { defaultProvider: config.defaultModel.provider, defaultModelId: config.defaultModel.modelId }),
 		modelRuntime,
 	});
-	if (!model) throw new Error("No model available. Configure credentials with `pi` first.");
+	if (!model) {
+		throw new Error(
+			viaProxy
+				? "No model available through the model proxy. Check PI_MODEL_PROXY_PROVIDERS and PI_DEFAULT_MODEL."
+				: "No model available. Configure credentials with `pi` first.",
+		);
+	}
+	console.error(`Models via ${viaProxy ? "proxy" : "local credentials"}; initial ${model.provider}/${model.id}`);
 
 	const { harness, open } = await AgentHarness.create(
 		{
 			session,
-			models: modelRuntime,
+			models: harnessModels,
 			model,
 			thinkingLevel,
 			tools: [createReadTool(), createWriteTool(), createEditTool(), createBashTool()],
 			toolContext: { env: executionEnv },
 			systemPrompt: systemPrompt(WORKSPACE_CWD),
+			// Correlates every provider call with the session; the proxy checks it against the token.
+			streamOptions: { headers: { "x-pi-session": session.metadata.id } },
 		},
 		context,
 	);
@@ -183,6 +220,17 @@ export async function runCloudSessionWorker(options: { sessionId?: string; confi
 	peer.provide(Lane, laneService);
 	peer.provide(Models, models);
 	peer.provide(Worker, { describe: async () => ({ sessionId: session.metadata.id }) });
+	peer.provide(CloudWorker, {
+		inspect: async () => {
+			const execution = await lane.inspectExecution(context);
+			return {
+				sessionId: session.metadata.id,
+				leaseEpoch: session.lease?.epoch,
+				busy: execution.current !== null,
+				currentOperationId: execution.current?.id ?? null,
+			};
+		},
+	});
 
 	// Creation restores durable operation state without starting effects. Once services are reachable,
 	// install a new process-local drive for every operation left open by the previous worker.

@@ -30,6 +30,7 @@
 			"@earendil-works/pi-session-backend-sqlite-node": ["./packages/session-backends/sqlite-node/src/index.ts"],
 			"@earendil-works/pi-session-backend-postgres": ["./packages/session-backends/postgres/src/index.ts"],
 			"@earendil-works/pi-env-opensandbox": ["./packages/env-opensandbox/src/index.ts"],
+			"@earendil-works/pi-model-proxy": ["./packages/model-proxy/src/index.ts"],
 			"@earendil-works/pi-coding-agent": ["./packages/coding-agent/src/index.ts"],
 			"@earendil-works/pi-coding-agent/experimental/plugin": [
 				"./packages/coding-agent/src/experimental/plugin.ts"

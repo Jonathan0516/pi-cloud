@@ -29,10 +29,13 @@ export async function ensureCloudServer(socketPath: string, config: CloudConfig)
 	} catch {
 		// No server yet; start one.
 	}
+	const env: NodeJS.ProcessEnv = { ...process.env, ...cloudConfigToEnv(config), ...loaderEnvFor(SERVER_ENTRY) };
+	// The node names itself after its own pid unless the operator chose an id; the CLI's pid is not it.
+	if (!process.env.PI_NODE_ID) delete env.PI_NODE_ID;
 	const child = spawn(process.execPath, [...loaderArgsFor(SERVER_ENTRY), SERVER_ENTRY, socketPath], {
 		detached: true,
 		stdio: "ignore",
-		env: { ...process.env, ...cloudConfigToEnv(config), ...loaderEnvFor(SERVER_ENTRY) },
+		env,
 	});
 	child.unref();
 	const deadline = Date.now() + SERVER_START_TIMEOUT_MS;

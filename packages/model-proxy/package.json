@@ -1,12 +1,11 @@
 {
-	"name": "@earendil-works/pi-cloud-worker",
+	"name": "@earendil-works/pi-model-proxy",
 	"version": "0.85.1",
 	"private": true,
-	"description": "Experimental cloud session worker: pi harness on PostgreSQL sessions and OpenSandbox execution",
+	"description": "Experimental model proxy: holds vendor API keys, admits workers by session-bound tokens, meters usage",
 	"type": "module",
 	"scripts": {
 		"start": "tsx --tsconfig ../../tsconfig.json src/main.ts",
-		"smoke": "tsx --tsconfig ../../tsconfig.json src/smoke.ts",
 		"test": "vitest --run"
 	},
 	"author": "Earendil Works",
@@ -15,11 +14,7 @@
 		"node": ">=22.19.0"
 	},
 	"dependencies": {
-		"@earendil-works/pi-agent-core": "^0.85.1",
 		"@earendil-works/pi-ai": "^0.85.1",
-		"@earendil-works/pi-coding-agent": "^0.85.1",
-		"@earendil-works/pi-env-opensandbox": "^0.85.1",
-		"@earendil-works/pi-model-proxy": "^0.85.1",
 		"@earendil-works/pi-session-backend-postgres": "^0.85.1"
 	},
 	"devDependencies": {
