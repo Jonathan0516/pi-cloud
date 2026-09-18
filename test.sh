@@ -69,6 +69,12 @@ for name in SystemRoot SYSTEMROOT WINDIR COMSPEC PATHEXT; do
 	[[ -z "$value" ]] || test_env+=("$name=$value")
 done
 
+# Opt-in integration backends (PostgreSQL, OpenSandbox). Their suites skip when these are absent.
+for name in PI_TEST_PG_URL OPEN_SANDBOX_DOMAIN OPEN_SANDBOX_API_KEY PI_TEST_SANDBOX_IMAGE PI_WORKSPACES_ROOT; do
+	value="${!name-}"
+	[[ -z "$value" ]] || test_env+=("$name=$value")
+done
+
 # Preserve CI detection only for runner behavior and test reporting.
 for name in CI GITHUB_ACTIONS; do
 	value="${!name-}"

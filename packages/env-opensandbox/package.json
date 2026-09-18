@@ -1,0 +1,44 @@
+{
+	"name": "@earendil-works/pi-env-opensandbox",
+	"version": "0.85.1",
+	"description": "OpenSandbox execution environment for @earendil-works/pi-agent-core harness tools",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"CHANGELOG.md"
+	],
+	"scripts": {
+		"clean": "node -e \"import('node:fs/promises').then(fs=>fs.rm('dist',{recursive:true,force:true}))\"",
+		"build": "tsgo -p tsconfig.build.json",
+		"test": "vitest --run",
+		"coverage": "vitest --run --coverage",
+		"prepublishOnly": "npm run clean && npm run build"
+	},
+	"author": "Earendil Works",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/earendil-works/pi.git",
+		"directory": "packages/env-opensandbox"
+	},
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"dependencies": {
+		"@alibaba-group/opensandbox": "0.1.11",
+		"@earendil-works/pi-agent-core": "^0.85.1"
+	},
+	"devDependencies": {
+		"@vitest/coverage-v8": "4.1.9",
+		"vitest": "4.1.9"
+	}
+}
