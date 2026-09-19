@@ -1,0 +1,121 @@
+# Phase 1: everything on one host. See deploy/README.md.
+#   cp deploy/.env.example deploy/.env   (fill it in)
+#   docker compose -f deploy/compose.yaml up -d --build
+name: pi-cloud
+
+x-control-plane: &control-plane
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile.control-plane
+  image: pi-control-plane:local
+  restart: unless-stopped
+  init: true
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pi
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?set PG_PASSWORD in deploy/.env}
+      POSTGRES_DB: pi
+    volumes:
+      - ${PG_DATA:-/data/pg}:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-opensandbox.sql:ro
+    # Loopback only: the OpenSandbox server runs on the host network and connects through 127.0.0.1.
+    ports:
+      - "127.0.0.1:${PG_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pi -d pi"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  opensandbox-server:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.opensandbox-server
+    image: pi-opensandbox-server:local
+    restart: unless-stopped
+    # Host network: sandboxes are created on the host daemon's bridge, and the server proxies
+    # to their bridge IPs; control-plane containers reach the server via host.docker.internal.
+    network_mode: host
+    environment:
+      OPENSANDBOX_SERVER_API_KEY: ${OPEN_SANDBOX_API_KEY:?set OPEN_SANDBOX_API_KEY in deploy/.env}
+      OPENSANDBOX_STORE_POSTGRESQL_DSN: postgresql://pi:${PG_PASSWORD}@127.0.0.1:${PG_PORT:-5432}/opensandbox
+    volumes:
+      # Root-equivalent on the host. Phase 1 accepts this; Phase 2 moves the sandbox plane to its own instances.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  pi-model-proxy:
+    <<: *control-plane
+    command: ["model-proxy"]
+    # Vendor keys live only here (deploy/model-proxy.env, never in the node's environment).
+    env_file:
+      - path: ./model-proxy.env
+        required: false
+    environment:
+      PI_MODEL_PROXY_SECRET: ${PI_MODEL_PROXY_SECRET:?set PI_MODEL_PROXY_SECRET in deploy/.env}
+      PI_MODEL_PROXY_HOST: 0.0.0.0
+      PI_MODEL_PROXY_PORT: "9100"
+      PI_PG_URL: postgres://pi:${PG_PASSWORD}@postgres:5432/pi
+      PI_PG_SCHEMA: ${PI_PG_SCHEMA:-pi_cloud}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  pi-node:
+    <<: *control-plane
+    command: ["node"]
+    environment:
+      PI_PG_URL: postgres://pi:${PG_PASSWORD}@postgres:5432/pi
+      PI_PG_SCHEMA: ${PI_PG_SCHEMA:-pi_cloud}
+      OPEN_SANDBOX_DOMAIN: ${OPEN_SANDBOX_DOMAIN:-host.docker.internal:8080}
+      OPEN_SANDBOX_API_KEY: ${OPEN_SANDBOX_API_KEY}
+      PI_SANDBOX_IMAGE: ${PI_SANDBOX_IMAGE:-pi-sandbox:local}
+      PI_SANDBOX_TIMEOUT_SECONDS: ${PI_SANDBOX_TIMEOUT_SECONDS:-1800}
+      # Same path inside and outside: the worker creates the directory, the host daemon mounts it.
+      PI_WORKSPACES_ROOT: ${WORKSPACES_ROOT:-/data/workspaces}
+      PI_NODE_ID: ${PI_NODE_ID:-node-1}
+      PI_NODE_LISTEN_HOST: 0.0.0.0
+      PI_NODE_LISTEN_PORT: "7420"
+      PI_NODE_ADVERTISE_ADDR: pi-node:7420
+      PI_NODE_PERSISTENT: "1"
+      PI_WORKER_IDLE_GRACE_MS: ${PI_WORKER_IDLE_GRACE_MS:-30000}
+      PI_LEASE_TTL_SECONDS: ${PI_LEASE_TTL_SECONDS:-30}
+      PI_MODEL_PROXY_URL: http://pi-model-proxy:9100
+      PI_MODEL_PROXY_SECRET: ${PI_MODEL_PROXY_SECRET}
+      PI_MODEL_PROXY_PROVIDERS: ${PI_MODEL_PROXY_PROVIDERS:-anthropic,openai,deepseek}
+      PI_DEFAULT_MODEL: ${PI_DEFAULT_MODEL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${WORKSPACES_ROOT:-/data/workspaces}:${WORKSPACES_ROOT:-/data/workspaces}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pi-model-proxy:
+        condition: service_started
+
+  pi-gateway:
+    <<: *control-plane
+    command: ["gateway"]
+    environment:
+      PI_GATEWAY_HOST: 0.0.0.0
+      PI_GATEWAY_PORT: "7400"
+      PI_PG_URL: postgres://pi:${PG_PASSWORD}@postgres:5432/pi
+      PI_PG_SCHEMA: ${PI_PG_SCHEMA:-pi_cloud}
+      PI_GATEWAY_NODES: pi-node:7420
+      PI_GATEWAY_WEB_DIR: /app/packages/cloud-web/dist
+      PI_GATEWAY_BOOTSTRAP_KEYS: ${PI_GATEWAY_BOOTSTRAP_KEYS:-}
+    ports:
+      # Terminate TLS in front (ALB, Caddy, nginx); this is plain HTTP.
+      - "${GATEWAY_BIND:-0.0.0.0}:${GATEWAY_PORT:-7400}:7400"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pi-node:
+        condition: service_started

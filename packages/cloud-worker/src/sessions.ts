@@ -8,6 +8,7 @@ import {
 	type PostgresSessionMetadata,
 	type PostgresSessionRepo,
 } from "@earendil-works/pi-session-backend-postgres";
+import { ensureBundleSchema } from "./bundles/store.ts";
 import type { CloudConfig } from "./config.ts";
 import { ensureRecoverySchema } from "./server/recovery.ts";
 
@@ -30,11 +31,12 @@ export async function ensureSessionSchema(sql: PostgresClient, config: Pick<Clou
 		await createSchemaIfMissing(transaction, config.schema);
 		await applyInitialSchema(transaction);
 		await ensureRecoverySchema(transaction);
+		await ensureBundleSchema(transaction);
 	});
 }
 
 /** Stable, human-readable location string for presentations that expect a session path. */
-export function sessionLocation(config: CloudConfig, sessionId: string): string {
+export function sessionLocation(config: Pick<CloudConfig, "schema">, sessionId: string): string {
 	return `postgres:${config.schema}/${sessionId}`;
 }
 

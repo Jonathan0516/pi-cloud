@@ -373,6 +373,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				sseHeaders.set("content-encoding", "zstd");
 			}
 			const sseBody: Uint8Array | string = compressedBody ?? bodyJson;
+			type FetchBody = NonNullable<NonNullable<Parameters<typeof globalThis.fetch>[1]>["body"]>;
 
 			// Fetch with retry logic for rate limits and transient errors
 			let response: Response | undefined;
@@ -392,7 +393,8 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						response = await (options?.fetch ?? globalThis.fetch)(resolveCodexUrl(model.baseUrl), {
 							method: "POST",
 							headers: sseHeaders,
-							body: sseBody,
+							// A gzip Buffer is a valid body in Node and in browsers; only the DOM typings disagree.
+							body: sseBody as FetchBody,
 							signal: combinedSignal.signal,
 						});
 					} catch (error) {

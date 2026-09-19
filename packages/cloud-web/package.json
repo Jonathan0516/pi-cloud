@@ -1,0 +1,27 @@
+{
+	"name": "@earendil-works/pi-cloud-web",
+	"version": "0.85.1",
+	"private": true,
+	"description": "Experimental browser client for the pi cloud gateway: the mini presentation over WebSocket",
+	"type": "module",
+	"scripts": {
+		"build": "node build.mjs",
+		"watch": "node build.mjs --watch",
+		"test": "vitest --run",
+		"check": "tsgo --noEmit -p tsconfig.json"
+	},
+	"author": "Earendil Works",
+	"license": "MIT",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"dependencies": {
+		"@earendil-works/pi-agent-core": "^0.85.1",
+		"@earendil-works/pi-cloud-gateway": "^0.85.1",
+		"@earendil-works/pi-coding-agent": "^0.85.1"
+	},
+	"devDependencies": {
+		"esbuild": "0.28.2",
+		"vitest": "4.1.9"
+	}
+}

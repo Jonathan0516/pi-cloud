@@ -1,0 +1,15 @@
+# Control-plane image build context: sources only; dependencies are installed and built inside the image.
+.git
+.claude
+node_modules
+**/node_modules
+**/dist
+**/dist-chrome
+**/dist-firefox
+.artifacts
+*.log
+.env
+deploy/.env
+deploy/model-proxy.env
+deploy/terraform/.terraform
+deploy/terraform/*.tfstate*

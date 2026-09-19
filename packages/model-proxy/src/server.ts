@@ -177,7 +177,7 @@ export async function startModelProxy(
 			max: 2,
 			applicationName: "pi-model-proxy",
 		});
-		await ensureBillingSchema(billing);
+		await ensureBillingSchema(billing, config.billing.schema);
 	}
 	const limiter = new RateLimiter(config.rateLimitPerMinute);
 	const pendingBilling = new Set<Promise<void>>();

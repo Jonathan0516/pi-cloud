@@ -35,6 +35,7 @@ function config(overrides: Partial<CloudConfig> = {}): CloudConfig {
 		sandboxImage: process.env.PI_TEST_SANDBOX_IMAGE ?? "opensandbox/code-interpreter:v1.1.0",
 		sandboxTimeoutSeconds: 600,
 		workspacesRoot: workspacesRoot!,
+		bundleCacheDir: join(workspacesRoot ?? tmpdir(), ".bundles"),
 		leaseTtlSeconds: 30,
 		leaseHeartbeatMs: 5000,
 		nodeId: `test-node-${randomUUID().slice(0, 8)}`,

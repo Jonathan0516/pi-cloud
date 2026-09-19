@@ -1,0 +1,37 @@
+# One image for the three control-plane roles: gateway, node (supervisor + workers), model-proxy.
+# The private cloud packages run from TypeScript source through tsx, exactly as in development;
+# the public packages they import are built to dist/ here.
+#
+#   docker build -f deploy/Dockerfile.control-plane -t pi-control-plane .
+#   docker run --rm pi-control-plane gateway | node | model-proxy
+
+FROM node:22-bookworm-slim
+
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates git python3 make g++ \
+	&& rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY package.json package-lock.json .npmrc tsconfig.json tsconfig.base.json ./
+COPY scripts ./scripts
+COPY packages ./packages
+COPY deploy/entrypoint.sh /usr/local/bin/pi-cloud
+
+# The repository rule: install without lifecycle scripts.
+RUN npm ci --ignore-scripts && npm cache clean --force
+
+# Public packages to dist/. A developer checkout carries generated model data (gitignored, but in
+# the build context), so the offline build is used when it is there; a bare clone regenerates it
+# from models.dev.
+RUN if [ -d packages/ai/src/providers/data ]; then npm run build:offline; else npm run build; fi
+
+# The browser client the gateway serves.
+RUN node packages/cloud-web/build.mjs \
+	&& chmod +x /usr/local/bin/pi-cloud \
+	&& chown -R node:node /app
+
+ENV NODE_ENV=production
+ENV TSX_TSCONFIG_PATH=/app/tsconfig.json
+USER node
+ENTRYPOINT ["pi-cloud"]
+CMD ["gateway"]

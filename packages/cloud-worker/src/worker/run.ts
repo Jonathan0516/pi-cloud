@@ -29,9 +29,12 @@ import { ModelsService } from "@earendil-works/pi-coding-agent/experimental/mini
 import { killSandbox, LazySandboxProvider, OpenSandboxExecutionEnv } from "@earendil-works/pi-env-opensandbox";
 import { createProxyCredentials, withModelProxy } from "@earendil-works/pi-model-proxy";
 import { type PostgresOpenSession, PostgresSessionRepo } from "@earendil-works/pi-session-backend-postgres";
+import { BUNDLE_MOUNT_PATH } from "../bundles/manifest.ts";
+import { composeSystemPrompt } from "../bundles/prompt.ts";
 import { type CloudConfig, loadCloudConfig, loadWorkerModelAccess, loadWorkerNodeIdentity } from "../config.ts";
 import { CloudWorker } from "../protocol.ts";
 import { createSessionClient, sessionLocation, WORKSPACE_CWD } from "../sessions.ts";
+import { resolveSessionBundle, type SessionBundle } from "./bundle.ts";
 
 /** Which sandbox currently backs this session. Application state, so forks and tree scans ignore it. */
 export interface SandboxBinding {
@@ -104,18 +107,35 @@ export async function createSessionExecutionEnv(
 	session: PostgresOpenSession,
 	config: CloudConfig,
 	context: Context,
+	bundle?: Pick<SessionBundle, "cached" | "changed">,
 ): Promise<OpenSandboxExecutionEnv> {
 	const sessionId = session.metadata.id;
 	const workspaceHostPath = join(config.workspacesRoot, sessionId);
 	await mkdir(workspaceHostPath, { recursive: true });
 	let remembered = await session.getValue(sandboxBinding, context);
-	if (remembered !== undefined && session.lease?.predecessor === "expired") {
+	// A remembered sandbox is discarded when its holder expired (it may still be running that
+	// holder's commands) or when the bundle moved (it has the old bundle mounted).
+	const discard =
+		remembered === undefined
+			? undefined
+			: session.lease?.predecessor === "expired"
+				? "its lease expired"
+				: bundle?.changed
+					? "the bundle changed"
+					: undefined;
+	if (remembered !== undefined && discard !== undefined) {
 		const killed = await killSandbox(sandboxConnection(config), remembered.value.sandboxId);
 		console.error(
-			`Took over session ${sessionId} from an expired lease; ${killed ? "killed" : "could not reach"} sandbox ${remembered.value.sandboxId}`,
+			`Discarding sandbox ${remembered.value.sandboxId} of session ${sessionId} because ${discard}; ${killed ? "killed" : "could not reach it"}`,
 		);
 		await session.deleteValue(sandboxBinding, context);
 		remembered = undefined;
+	}
+	const volumes = [
+		{ name: "workspace", host: { path: workspaceHostPath }, mountPath: WORKSPACE_CWD, readOnly: false },
+	];
+	if (bundle?.cached !== undefined) {
+		volumes.push({ name: "bundle", host: { path: bundle.cached.dir }, mountPath: BUNDLE_MOUNT_PATH, readOnly: true });
 	}
 	const provider = new LazySandboxProvider({
 		connectionConfig: sandboxConnection(config),
@@ -124,7 +144,7 @@ export async function createSessionExecutionEnv(
 			timeoutSeconds: config.sandboxTimeoutSeconds,
 			readyTimeoutSeconds: 180,
 			metadata: { "pi.session": sessionId },
-			volumes: [{ name: "workspace", host: { path: workspaceHostPath }, mountPath: WORKSPACE_CWD, readOnly: false }],
+			volumes,
 		},
 		sandboxId: remembered?.value.sandboxId,
 		keepAlive: { timeoutSeconds: config.sandboxTimeoutSeconds },
@@ -170,7 +190,8 @@ export async function runCloudSessionWorker(options: {
 			`Holding session ${session.metadata.id} lease epoch ${session.lease.epoch} (${session.lease.predecessor})`,
 		);
 	}
-	const executionEnv = await createSessionExecutionEnv(session, config, context);
+	const bundle = await resolveSessionBundle(sql, session, config, context);
+	const executionEnv = await createSessionExecutionEnv(session, config, context, bundle);
 
 	const { runtime: modelRuntime, harnessModels, viaProxy } = await createModels(config);
 	const { model, thinkingLevel } = await findInitialModel({
@@ -198,7 +219,11 @@ export async function runCloudSessionWorker(options: {
 			thinkingLevel,
 			tools: [createReadTool(), createWriteTool(), createEditTool(), createBashTool()],
 			toolContext: { env: executionEnv },
-			systemPrompt: systemPrompt(WORKSPACE_CWD),
+			systemPrompt: composeSystemPrompt(systemPrompt(WORKSPACE_CWD), bundle.resources),
+			resources: {
+				skills: bundle.resources?.skills ?? [],
+				promptTemplates: bundle.resources?.promptTemplates ?? [],
+			},
 			// Correlates every provider call with the session; the proxy checks it against the token.
 			streamOptions: { headers: { "x-pi-session": session.metadata.id } },
 		},
@@ -228,6 +253,7 @@ export async function runCloudSessionWorker(options: {
 				leaseEpoch: session.lease?.epoch,
 				busy: execution.current !== null,
 				currentOperationId: execution.current?.id ?? null,
+				bundleVersion: bundle.plan.version ?? null,
 			};
 		},
 	});

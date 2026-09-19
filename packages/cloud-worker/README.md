@@ -9,7 +9,7 @@ pi-cloud (tui)  ──unix socket──▶  node (supervisor)  ──stdio──
                                    reaper, idle sweep                                          /workspace ⇄ $PI_WORKSPACES_ROOT/<session>
 ```
 
-Configuration is read from the environment: `PI_PG_URL`, `PI_PG_SCHEMA` (default `pi_cloud`), `OPEN_SANDBOX_DOMAIN`, `OPEN_SANDBOX_API_KEY`, `PI_SANDBOX_IMAGE`, `PI_SANDBOX_TIMEOUT_SECONDS` (default 1800), and `PI_WORKSPACES_ROOT`. The server creates the schema and tables on start. Model credentials come from the local `pi` configuration, as in `mini`.
+Configuration is read from the environment: `PI_PG_URL`, `PI_PG_SCHEMA` (default `pi_cloud`), `OPEN_SANDBOX_DOMAIN`, `OPEN_SANDBOX_API_KEY`, `PI_SANDBOX_IMAGE`, `PI_SANDBOX_TIMEOUT_SECONDS` (default 1800), `PI_WORKSPACES_ROOT`, and `PI_BUNDLE_CACHE_DIR` (default `<PI_WORKSPACES_ROOT>/.bundles`). The server creates the schema and tables on start. Model credentials come from the local `pi` configuration, as in `mini`.
 
 ```bash
 # from the repository root, with ~/pi-cloud-dev/.env sourced
@@ -43,6 +43,23 @@ tsx --tsconfig tsconfig.json packages/cloud-worker/src/smoke.ts --socket /tmp/pi
 # kill node a and its worker mid-run; b's reaper resumes the session once the lease expires
 tsx --tsconfig tsconfig.json packages/cloud-worker/src/main.ts --socket /tmp/pi-node-b.sock --session <id>
 ```
+
+## Resource bundles
+
+A bundle is the skills, prompt templates, and prompt files a tenant's sessions run with. It is immutable and content-addressed: `version = sha256(manifest)`, and the manifest hashes every file, so one version names exactly one set of bytes. Bundles live in `resource_bundles`, each tenant's current default in `tenant_bundles`; the gateway publishes and sets them (see `packages/cloud-gateway`).
+
+```text
+SYSTEM.md                  replaces the default system prompt
+APPEND_SYSTEM.md, append/*.md   appended, in path order
+AGENTS.md                  project instructions, appended under a heading
+skills/<name>/SKILL.md     frontmatter: name, description, disable-model-invocation
+prompts/<name>.md          frontmatter: description
+extensions/                listed in the manifest but never loaded: tenant code does not run in a worker
+```
+
+A session records its tenant (`cloud.tenant/id`) and the bundle it is pinned to (`cloud.bundle/version`). At start the worker materializes that version into the node cache (`PI_BUNDLE_CACHE_DIR`, default `<PI_WORKSPACES_ROOT>/.bundles`), verifying every file against the manifest, and mounts the directory read-only at `/opt/pi/bundle` in the session's sandbox. Skills are listed in the system prompt with that mounted path, so the model's `read` tool finds them where the prompt says they are. A complete cache directory is trusted without re-hashing, because a version can never change.
+
+Upgrades happen only at idle boundaries, and only when the tenant's new default registers every entry type the session already holds (`planTakeovers`' sibling, `planBundleUpgrade`). A session with an open operation keeps its pinned version, so a worker never resumes an operation with code that cannot recognize its entries. When the pin moves, the remembered sandbox is discarded: it has the old bundle mounted.
 
 No sandbox exists until the first tool call. The worker remembers the sandbox id in the session (`cloud.sandbox` value), so a replacement worker reconnects to the running sandbox; when it has expired, a new one mounts the same host workspace. Killing a worker mid-run and reattaching resumes the open operation from its durable restart point, exactly as `mini` does.
 

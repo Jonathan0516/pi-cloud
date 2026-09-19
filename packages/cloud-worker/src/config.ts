@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { join } from "node:path";
 
 /** Deployment settings for the cloud worker slice, read from the environment. */
 export interface CloudConfig {
@@ -15,6 +16,12 @@ export interface CloudConfig {
 	sandboxTimeoutSeconds: number;
 	/** Host directory whose per-session subdirectories are mounted at `/workspace`. */
 	workspacesRoot: string;
+	/**
+	 * Node-local cache of resource bundles, one directory per version, mounted read-only into
+	 * sandboxes. Defaults to `<workspacesRoot>/.bundles` so the sandbox server's host path
+	 * allowlist already covers it.
+	 */
+	bundleCacheDir: string;
 	/** Session lease TTL; a worker silent for longer loses its session. */
 	leaseTtlSeconds: number;
 	/** Batched lease heartbeat interval. */
@@ -63,6 +70,7 @@ const ENV = {
 	sandboxImage: "PI_SANDBOX_IMAGE",
 	sandboxTimeoutSeconds: "PI_SANDBOX_TIMEOUT_SECONDS",
 	workspacesRoot: "PI_WORKSPACES_ROOT",
+	bundleCacheDir: "PI_BUNDLE_CACHE_DIR",
 	leaseTtlSeconds: "PI_LEASE_TTL_SECONDS",
 	leaseHeartbeatMs: "PI_LEASE_HEARTBEAT_MS",
 	modelProxyUrl: "PI_MODEL_PROXY_URL",
@@ -127,6 +135,7 @@ export function loadCloudConfig(env: NodeJS.ProcessEnv = process.env, role: Clou
 		sandboxImage: env[ENV.sandboxImage] || DEFAULT_SANDBOX_IMAGE,
 		sandboxTimeoutSeconds: integer(env, ENV.sandboxTimeoutSeconds, DEFAULT_SANDBOX_TIMEOUT_SECONDS),
 		workspacesRoot: required(env, ENV.workspacesRoot),
+		bundleCacheDir: env[ENV.bundleCacheDir] || join(required(env, ENV.workspacesRoot), ".bundles"),
 		leaseTtlSeconds: integer(env, ENV.leaseTtlSeconds, DEFAULT_LEASE_TTL_SECONDS),
 		leaseHeartbeatMs: integer(env, ENV.leaseHeartbeatMs, DEFAULT_LEASE_HEARTBEAT_MS),
 		...modelProxyFromEnv(env, role),
@@ -218,6 +227,7 @@ export function cloudConfigToEnv(config: CloudConfig): Record<string, string> {
 		[ENV.sandboxImage]: config.sandboxImage,
 		[ENV.sandboxTimeoutSeconds]: String(config.sandboxTimeoutSeconds),
 		[ENV.workspacesRoot]: config.workspacesRoot,
+		[ENV.bundleCacheDir]: config.bundleCacheDir,
 		[ENV.leaseTtlSeconds]: String(config.leaseTtlSeconds),
 		[ENV.leaseHeartbeatMs]: String(config.leaseHeartbeatMs),
 		...(config.modelProxy === undefined

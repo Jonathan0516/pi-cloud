@@ -1,4 +1,4 @@
-import type { PostgresClient } from "@earendil-works/pi-session-backend-postgres";
+import { createSchemaIfMissing, type PostgresClient } from "@earendil-works/pi-session-backend-postgres";
 import type { UsageCounts } from "./usage.ts";
 
 /** One upstream call as the proxy saw it. Independent of the session usage ledger, which the harness owns. */
@@ -17,8 +17,15 @@ export interface BillingEvent {
 	error?: string;
 }
 
-export async function ensureBillingSchema(sql: PostgresClient): Promise<void> {
-	await sql.unsafe(`CREATE TABLE IF NOT EXISTS billing_events (
+/**
+ * Create the schema (the proxy may start before any node has) and the billing table. The advisory
+ * lock serializes this with the nodes' own schema setup, which races otherwise inside PostgreSQL.
+ */
+export async function ensureBillingSchema(sql: PostgresClient, schema: string): Promise<void> {
+	await sql.begin(async (transaction) => {
+		await transaction`SELECT pg_advisory_xact_lock(hashtext(${`pi-cloud-schema:${schema}`}))`;
+		await createSchemaIfMissing(transaction, schema);
+		await transaction.unsafe(`CREATE TABLE IF NOT EXISTS billing_events (
 	id BIGSERIAL PRIMARY KEY,
 	at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	tenant TEXT NOT NULL,
@@ -39,6 +46,7 @@ export async function ensureBillingSchema(sql: PostgresClient): Promise<void> {
 );
 CREATE INDEX IF NOT EXISTS ix_billing_tenant_at ON billing_events (tenant, at DESC);
 CREATE INDEX IF NOT EXISTS ix_billing_session_at ON billing_events (session, at DESC);`);
+	});
 }
 
 export async function recordBillingEvent(sql: PostgresClient, event: BillingEvent): Promise<void> {

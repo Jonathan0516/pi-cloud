@@ -1,0 +1,22 @@
+# Developer override for a laptop that already runs an OpenSandbox server on the host (as in
+# ~/pi-cloud-dev): the control plane runs in containers, sandboxes are created by the host server.
+#   docker compose -f deploy/compose.yaml -f deploy/compose.local.yaml up -d --build postgres pi-model-proxy pi-node pi-gateway
+# Set WORKSPACES_ROOT to a path in the host server's allowed_host_paths and PG_PORT to a free port.
+services:
+  postgres:
+    volumes:
+      - pi-cloud-local-pg:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/10-opensandbox.sql:ro
+  opensandbox-server:
+    profiles: ["never"]
+  pi-model-proxy:
+    # Vendor keys from the developer's pi credentials instead of model-proxy.env.
+    environment:
+      PI_MODEL_PROXY_KEYS_FILE: /run/secrets/pi-auth.json
+    volumes:
+      - ${PI_AUTH_JSON:-~/.pi/agent/auth.json}:/run/secrets/pi-auth.json:ro
+  pi-node:
+    environment:
+      OPEN_SANDBOX_DOMAIN: host.docker.internal:8080
+volumes:
+  pi-cloud-local-pg:

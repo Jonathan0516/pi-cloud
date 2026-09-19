@@ -1,0 +1,28 @@
+{
+	"name": "@earendil-works/pi-cloud-gateway",
+	"version": "0.85.1",
+	"private": true,
+	"description": "Experimental cloud gateway: API-key tenancy, REST session catalog, WebSocket relay to the node holding a session",
+	"type": "module",
+	"scripts": {
+		"start": "tsx --tsconfig ../../tsconfig.json src/main.ts",
+		"test": "vitest --run"
+	},
+	"author": "Earendil Works",
+	"license": "MIT",
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"dependencies": {
+		"@earendil-works/pi-agent-core": "^0.85.1",
+		"@earendil-works/pi-ai": "^0.85.1",
+		"@earendil-works/pi-cloud-worker": "^0.85.1",
+		"@earendil-works/pi-coding-agent": "^0.85.1",
+		"@earendil-works/pi-session-backend-postgres": "^0.85.1",
+		"ws": "8.21.0"
+	},
+	"devDependencies": {
+		"@types/ws": "8.18.1",
+		"vitest": "4.1.9"
+	}
+}

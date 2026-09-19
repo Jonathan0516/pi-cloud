@@ -14,6 +14,7 @@ function config(overrides: Partial<CloudConfig> = {}): CloudConfig {
 		sandboxImage: "img",
 		sandboxTimeoutSeconds: 600,
 		workspacesRoot: "/tmp/w",
+		bundleCacheDir: "/tmp/w/.bundles",
 		leaseTtlSeconds: 30,
 		leaseHeartbeatMs: 5000,
 		nodeId: "node-a",

@@ -158,7 +158,7 @@ export function createPeer(connection: Connection, options: PeerOptions = {}): R
 					Math.floor(deadMs / 3),
 				)
 			: undefined;
-	liveness?.unref();
+	unref(liveness);
 
 	const callWith = (callOptions: CallOptions, method: string, ...args: unknown[]): Promise<unknown> =>
 		new Promise((resolve, reject) => {
@@ -191,7 +191,7 @@ export function createPeer(connection: Connection, options: PeerOptions = {}): R
 					() => abandon(new Error(`${method} timed out after ${callOptions.timeoutMs}ms`)),
 					callOptions.timeoutMs,
 				);
-				timer.unref();
+				unref(timer);
 			}
 			connection.send({ kind: "call", id, method, args });
 		});
@@ -226,6 +226,11 @@ export function createPeer(connection: Connection, options: PeerOptions = {}): R
 		close: () => connection.close(),
 	};
 	return peer;
+}
+
+/** Node timers should not keep a process alive; browser timers have no such handle. */
+function unref(timer: ReturnType<typeof setTimeout> | ReturnType<typeof setInterval> | undefined): void {
+	if (timer !== undefined && typeof timer === "object" && "unref" in timer) timer.unref();
 }
 
 function message(error: unknown): string {

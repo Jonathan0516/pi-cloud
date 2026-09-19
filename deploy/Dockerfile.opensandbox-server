@@ -1,0 +1,19 @@
+# OpenSandbox lifecycle server, Docker runtime. Installed from the GitHub repository because the
+# PyPI release lags the features this deployment relies on (PostgreSQL store, proxy.resolve_internal).
+# Runs with the host's Docker socket mounted: it creates sandbox containers on the host daemon.
+#
+#   docker build -f deploy/Dockerfile.opensandbox-server -t pi-opensandbox-server .
+
+FROM python:3.12-slim
+ARG OPENSANDBOX_REF=main
+
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends ca-certificates git \
+	&& rm -rf /var/lib/apt/lists/* \
+	&& pip install --no-cache-dir "opensandbox-server @ git+https://github.com/opensandbox-group/OpenSandbox.git@${OPENSANDBOX_REF}#subdirectory=server" \
+	&& apt-get purge -y git && apt-get autoremove -y
+
+COPY deploy/sandbox.toml /etc/opensandbox/sandbox.toml
+ENV SANDBOX_CONFIG_PATH=/etc/opensandbox/sandbox.toml
+EXPOSE 8080
+CMD ["opensandbox-server", "--config", "/etc/opensandbox/sandbox.toml"]

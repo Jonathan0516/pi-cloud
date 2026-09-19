@@ -8,6 +8,8 @@ export interface CloudWorkerStatus {
 	/** An operation is in flight; the supervisor keeps the worker alive regardless of viewers. */
 	busy: boolean;
 	currentOperationId: string | null;
+	/** Resource bundle the worker runs with, or null when bare. */
+	bundleVersion: string | null;
 }
 
 export interface CloudWorkerServiceApi {

@@ -1,0 +1,6 @@
+.env
+model-proxy.env
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars
