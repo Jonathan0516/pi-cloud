@@ -20,7 +20,7 @@ Everything the design's Phase 1 calls for, on one machine, with Docker Compose:
 |---|---|
 | Control-plane image (gateway, node, model proxy; one image, role by command) | `Dockerfile.control-plane`, `entrypoint.sh` |
 | OpenSandbox lifecycle server image (from GitHub main, Docker runtime) | `Dockerfile.opensandbox-server`, `sandbox.toml` |
-| Sandbox image sessions run in (code-interpreter + ripgrep, fd, pip, jq) | `sandbox/Dockerfile` |
+| Sandbox image sessions run in (Node, Python, git, ripgrep, fd, a toolchain) | `sandbox/Dockerfile` |
 | The stack | `compose.yaml`, `.env.example`, `model-proxy.env.example`, `postgres/init.sql` |
 | Laptop variant using a host-run OpenSandbox server | `compose.local.yaml` |
 | EC2 host: VPC, security group, instance, data volume, SSM role | `terraform/` |
@@ -41,6 +41,8 @@ Everything the design's Phase 1 calls for, on one machine, with Docker Compose:
 - **gVisor is on by default** (`[secure_runtime] type = "gvisor"`); `user-data.sh` installs `runsc`. On a host without it, sandbox creation fails until the table is removed from `sandbox.toml`.
 - **Vendor keys exist in one container.** `model-proxy.env` is read by `pi-model-proxy` only. The node gets the minting secret and hands each worker a session-bound token; workers never see a vendor key.
 - **Postgres is published on loopback only**, for the host-network sandbox server; the compose services use the `postgres` DNS name. `init.sql` creates the `opensandbox` database on first start. Gateway, node, and model proxy each create the `pi_cloud` schema and their own tables under one advisory lock, so start order does not matter. Move to RDS by pointing `PI_PG_URL` and the two DSNs at it and dropping the `postgres` service.
+- **The sandbox image is built here, not pulled.** `sandbox/Dockerfile` starts from `node:22-bookworm-slim`, about 900 MB, rather than `opensandbox/code-interpreter`, which is 10.4 GB of Jupyter and data-science stack a coding agent never opens. The server copies execd, bootstrap.sh and bwrap into every container and overrides its entrypoint, so a sandbox image owes it nothing but a glibc userland and a shell. Swap the base if your sessions need something heavier.
+- **Workspaces are reclaimed by the node that owns them**, not by the gateway: idle past `PI_WORKSPACE_RETENTION_DAYS` (default 14) or orphaned by a deleted session. Set it to `0` to keep everything and watch `/data` yourself.
 - **TLS is not here.** Put an ALB or Caddy in front of `:7400` before letting anyone but yourself at it; the web client's session storage sends the API key to whatever origin serves the page.
 
 ## Laptop run

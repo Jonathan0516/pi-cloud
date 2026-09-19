@@ -39,6 +39,8 @@ function nodeConfig(): CloudConfig {
 		sandboxTimeoutSeconds: 600,
 		workspacesRoot: workspacesRoot ?? "/tmp",
 		bundleCacheDir: `${workspacesRoot ?? "/tmp"}/.bundles`,
+		workspaceRetentionDays: 14,
+		workspaceGcIntervalMs: 0,
 		leaseTtlSeconds: 30,
 		leaseHeartbeatMs: 5000,
 		nodeId: `gw-test-node-${randomUUID().slice(0, 8)}`,

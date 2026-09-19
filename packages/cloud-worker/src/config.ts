@@ -46,6 +46,13 @@ export interface CloudConfig {
 	nodeAdvertiseAddr?: string;
 	/** Keep running with no presentations and no workers (a node), instead of retiring like the CLI server. */
 	nodePersistent: boolean;
+	/**
+	 * Remove a session workspace left idle this long. 0 disables reclamation, which means the
+	 * directories grow without bound; see `server/workspaces.ts`.
+	 */
+	workspaceRetentionDays: number;
+	/** How often a node sweeps the workspaces root. */
+	workspaceGcIntervalMs: number;
 	/** Reaper cadence and per-tick takeover budget. */
 	reaperIntervalMs: number;
 	reaperTakeoversPerTick: number;
@@ -84,6 +91,8 @@ const ENV = {
 	nodeListenPort: "PI_NODE_LISTEN_PORT",
 	nodeAdvertiseAddr: "PI_NODE_ADVERTISE_ADDR",
 	nodePersistent: "PI_NODE_PERSISTENT",
+	workspaceRetentionDays: "PI_WORKSPACE_RETENTION_DAYS",
+	workspaceGcIntervalMs: "PI_WORKSPACE_GC_INTERVAL_MS",
 	reaperIntervalMs: "PI_REAPER_INTERVAL_MS",
 	reaperTakeoversPerTick: "PI_REAPER_TAKEOVERS_PER_TICK",
 	poisonThreshold: "PI_POISON_THRESHOLD",
@@ -92,6 +101,8 @@ const ENV = {
 	nodeAddr: "PI_NODE_ADDR",
 } as const;
 
+export const DEFAULT_WORKSPACE_RETENTION_DAYS = 14;
+export const DEFAULT_WORKSPACE_GC_INTERVAL_MS = 60 * 60 * 1000;
 export const DEFAULT_REAPER_INTERVAL_MS = 5000;
 export const DEFAULT_REAPER_TAKEOVERS_PER_TICK = 2;
 export const DEFAULT_POISON_THRESHOLD = 3;
@@ -102,7 +113,7 @@ export const DEFAULT_MODEL_PROXY_TOKEN_TTL_SECONDS = 24 * 60 * 60;
 
 export const DEFAULT_SANDBOX_IMAGE = "opensandbox/code-interpreter:v1.1.0";
 export const DEFAULT_SCHEMA = "pi_cloud";
-export const DEFAULT_SANDBOX_TIMEOUT_SECONDS = 1800;
+export const DEFAULT_SANDBOX_TIMEOUT_SECONDS = 600;
 export const DEFAULT_LEASE_TTL_SECONDS = 30;
 export const DEFAULT_LEASE_HEARTBEAT_MS = 5000;
 
@@ -145,6 +156,8 @@ export function loadCloudConfig(env: NodeJS.ProcessEnv = process.env, role: Clou
 		nodeListenPort: integer(env, ENV.nodeListenPort, 0, 0),
 		...(env[ENV.nodeAdvertiseAddr] ? { nodeAdvertiseAddr: env[ENV.nodeAdvertiseAddr] } : {}),
 		nodePersistent: env[ENV.nodePersistent] === "1" || env[ENV.nodePersistent] === "true",
+		workspaceRetentionDays: integer(env, ENV.workspaceRetentionDays, DEFAULT_WORKSPACE_RETENTION_DAYS, 0),
+		workspaceGcIntervalMs: integer(env, ENV.workspaceGcIntervalMs, DEFAULT_WORKSPACE_GC_INTERVAL_MS, 0),
 		reaperIntervalMs: integer(env, ENV.reaperIntervalMs, DEFAULT_REAPER_INTERVAL_MS, 0),
 		reaperTakeoversPerTick: integer(env, ENV.reaperTakeoversPerTick, DEFAULT_REAPER_TAKEOVERS_PER_TICK, 0),
 		poisonThreshold: integer(env, ENV.poisonThreshold, DEFAULT_POISON_THRESHOLD),
@@ -246,6 +259,8 @@ export function cloudConfigToEnv(config: CloudConfig): Record<string, string> {
 		[ENV.nodeListenPort]: String(config.nodeListenPort),
 		...(config.nodeAdvertiseAddr === undefined ? {} : { [ENV.nodeAdvertiseAddr]: config.nodeAdvertiseAddr }),
 		[ENV.nodePersistent]: config.nodePersistent ? "1" : "0",
+		[ENV.workspaceRetentionDays]: String(config.workspaceRetentionDays),
+		[ENV.workspaceGcIntervalMs]: String(config.workspaceGcIntervalMs),
 		[ENV.reaperIntervalMs]: String(config.reaperIntervalMs),
 		[ENV.reaperTakeoversPerTick]: String(config.reaperTakeoversPerTick),
 		[ENV.poisonThreshold]: String(config.poisonThreshold),

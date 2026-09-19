@@ -36,6 +36,8 @@ function config(overrides: Partial<CloudConfig> = {}): CloudConfig {
 		sandboxTimeoutSeconds: 600,
 		workspacesRoot: workspacesRoot!,
 		bundleCacheDir: join(workspacesRoot ?? tmpdir(), ".bundles"),
+		workspaceRetentionDays: 14,
+		workspaceGcIntervalMs: 0,
 		leaseTtlSeconds: 30,
 		leaseHeartbeatMs: 5000,
 		nodeId: `test-node-${randomUUID().slice(0, 8)}`,

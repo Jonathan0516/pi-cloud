@@ -28,6 +28,14 @@ export {
 export { type BundleUpgradePlan, planBundleUpgrade } from "./bundles/upgrade.ts";
 export { type CloudConfig, loadCloudConfig } from "./config.ts";
 export { type RunningCloudServer, startCloudServer } from "./server/run.ts";
+export {
+	planWorkspaceCleanup,
+	readWorkspaceFacts,
+	sweepWorkspaces,
+	type WorkspaceCandidate,
+	type WorkspacePolicy,
+	type WorkspaceVerdict,
+} from "./server/workspaces.ts";
 export { sessionBundleVersion, sessionTenant } from "./session-values.ts";
 export { createSessionClient, ensureSessionSchema, sessionLocation, WORKSPACE_CWD } from "./sessions.ts";
 export { connectTcp, parseAddress, type TcpTransport, tcpTransport } from "./transport.ts";

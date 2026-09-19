@@ -39,6 +39,7 @@ import {
 	recordTakeoverSuccess,
 } from "./recovery.ts";
 import { workerEnvironment } from "./worker-env.ts";
+import { sweepWorkspaces } from "./workspaces.ts";
 
 const WORKER_ENTRY = fileURLToPath(new URL("../worker/entry.ts", import.meta.url));
 const WORKER_START_TIMEOUT_MS = 60_000;
@@ -493,11 +494,37 @@ export async function startCloudServer(options: CloudServerOptions): Promise<Run
 			: undefined;
 	reapTimer?.unref();
 
+	// Workspaces outlive their sandboxes by design, so something has to reclaim them. Runs on its
+	// own slow cadence; a sweep never touches a directory whose session a worker still holds.
+	const gcIntervalMs = config.workspaceRetentionDays === 0 ? 0 : config.workspaceGcIntervalMs;
+	let gcInFlight = false;
+	const runWorkspaceGc = (): void => {
+		if (gcInFlight || closing) return;
+		gcInFlight = true;
+		void sweepWorkspaces(sql, {
+			workspacesRoot: config.workspacesRoot,
+			retentionMs: config.workspaceRetentionDays * 86_400_000,
+			log,
+		})
+			.then((removed) => {
+				if (removed.length > 0) log(`reclaimed ${removed.length} workspace(s)`);
+			})
+			.catch((error: unknown) => log(`workspace sweep failed: ${String(error)}`))
+			.finally(() => {
+				gcInFlight = false;
+			});
+	};
+	const gcTimer = gcIntervalMs > 0 ? setInterval(runWorkspaceGc, gcIntervalMs) : undefined;
+	gcTimer?.unref();
+	// One sweep at start clears what a previous run of this node left behind.
+	if (gcIntervalMs > 0) setTimeout(runWorkspaceGc, 5_000).unref();
+
 	considerRetiring();
 	const done = retired.then(async () => {
 		closing = true;
 		clearInterval(sweepTimer);
 		if (reapTimer) clearInterval(reapTimer);
+		if (gcTimer) clearInterval(gcTimer);
 		await Promise.all([...routes.values()].map((route) => route.stop()));
 		// Workers already told to stop must finish exiting before the database client goes away,
 		// because their exit triggers a lease reconciliation.

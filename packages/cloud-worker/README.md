@@ -9,7 +9,7 @@ pi-cloud (tui)  ──unix socket──▶  node (supervisor)  ──stdio──
                                    reaper, idle sweep                                          /workspace ⇄ $PI_WORKSPACES_ROOT/<session>
 ```
 
-Configuration is read from the environment: `PI_PG_URL`, `PI_PG_SCHEMA` (default `pi_cloud`), `OPEN_SANDBOX_DOMAIN`, `OPEN_SANDBOX_API_KEY`, `PI_SANDBOX_IMAGE`, `PI_SANDBOX_TIMEOUT_SECONDS` (default 1800), `PI_WORKSPACES_ROOT`, and `PI_BUNDLE_CACHE_DIR` (default `<PI_WORKSPACES_ROOT>/.bundles`). The server creates the schema and tables on start. Model credentials come from the local `pi` configuration, as in `mini`.
+Configuration is read from the environment: `PI_PG_URL`, `PI_PG_SCHEMA` (default `pi_cloud`), `OPEN_SANDBOX_DOMAIN`, `OPEN_SANDBOX_API_KEY`, `PI_SANDBOX_IMAGE`, `PI_SANDBOX_TIMEOUT_SECONDS` (default 600), `PI_WORKSPACES_ROOT`, and `PI_BUNDLE_CACHE_DIR` (default `<PI_WORKSPACES_ROOT>/.bundles`). The server creates the schema and tables on start. Model credentials come from the local `pi` configuration, as in `mini`.
 
 ```bash
 # from the repository root, with ~/pi-cloud-dev/.env sourced
@@ -60,6 +60,12 @@ extensions/                listed in the manifest but never loaded: tenant code 
 A session records its tenant (`cloud.tenant/id`) and the bundle it is pinned to (`cloud.bundle/version`). At start the worker materializes that version into the node cache (`PI_BUNDLE_CACHE_DIR`, default `<PI_WORKSPACES_ROOT>/.bundles`), verifying every file against the manifest, and mounts the directory read-only at `/opt/pi/bundle` in the session's sandbox. Skills are listed in the system prompt with that mounted path, so the model's `read` tool finds them where the prompt says they are. A complete cache directory is trusted without re-hashing, because a version can never change.
 
 Upgrades happen only at idle boundaries, and only when the tenant's new default registers every entry type the session already holds (`planTakeovers`' sibling, `planBundleUpgrade`). A session with an open operation keeps its pinned version, so a worker never resumes an operation with code that cannot recognize its entries. When the pin moves, the remembered sandbox is discarded: it has the old bundle mounted.
+
+## Reclaiming workspaces
+
+A session's `/workspace` is a host directory that outlives its sandbox on purpose: the sandbox is disposable, the work in it is not. Nothing else deletes those directories, so every node sweeps its workspaces root every `PI_WORKSPACE_GC_INTERVAL_MS` (default one hour, plus once five seconds after start).
+
+A directory is removed only when no worker holds the session and either its session row is gone (deleted through the gateway) or the session has been idle longer than `PI_WORKSPACE_RETENTION_DAYS` (default 14; `0` disables reclamation entirely). A directory with no session row must also be at least an hour old, so a session being created right now is never caught. Dot-directories are skipped, which is what keeps the bundle cache safe where it sits under the same root. The decision is `planWorkspaceCleanup`, a pure function, so the dangerous half is tested without a filesystem.
 
 No sandbox exists until the first tool call. The worker remembers the sandbox id in the session (`cloud.sandbox` value), so a replacement worker reconnects to the running sandbox; when it has expired, a new one mounts the same host workspace. Killing a worker mid-run and reattaching resumes the open operation from its durable restart point, exactly as `mini` does.
 

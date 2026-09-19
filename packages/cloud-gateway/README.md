@@ -16,7 +16,7 @@ browser / CLI ──HTTPS REST──▶ gateway ──▶ PostgreSQL (catalog, k
 | `GET` | `/v1/sessions` | the tenant's sessions, newest first, with `state` (`running`/`idle`) and `owner` (node) |
 | `POST` | `/v1/sessions` | create; body `{ "title"?: string }`. Writes the session row and catalog entry only; the first attach starts a worker |
 | `GET` | `/v1/sessions/:id` | one session |
-| `DELETE` | `/v1/sessions/:id` | delete entries, values, lease, and catalog row. `409` while a worker holds the session. The workspace directory is left for the operator |
+| `DELETE` | `/v1/sessions/:id` | delete entries, values, lease, and catalog row. `409` while a worker holds the session. The owning node reclaims the workspace directory on its next sweep |
 | `GET` | `/v1/bundles` | the tenant's resource bundles, newest first |
 | `POST` | `/v1/bundles` | publish; body `{ "files": { "<path>": "<content>" }, "encoding"?: "utf8" \| "base64", "setDefault"?: true }`. The same bytes always yield the same version, so republishing returns `200` with `created: false` |
 | `GET` | `/v1/bundles/:version` | one bundle's manifest |
